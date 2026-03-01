@@ -1,0 +1,49 @@
+*~
+
+# Build outputs
+build/
+build-*/
+cmake-build-*/
+build-clang/
+
+# Generated CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+CMakeConfigureLog.yaml
+**/CMakeFiles/
+**/CMakeCache.txt
+**/Makefile
+**/cmake_install.cmake
+
+# Temporary files
+*.d
+*.log
+*.tmp
+*.out
+*.map
+CMakeTmp/
+CMakeScratch/
+
+# Python files
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+.venv-*/
+venv/
+
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# CLion / JetBrains
+.idea/
