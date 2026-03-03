@@ -57,6 +57,40 @@ def parse_int_field(row, *keys):
     return None
 
 
+def normalize_metric_name(row):
+    name = (row.get("name") or "").strip()
+    return name or "<unnamed>"
+
+
+def is_non_negative(value):
+    return value is not None and value >= 0
+
+
+def resolve_scheduling_latency(row, cpu_duration, gpu_duration):
+    scheduling_latency = parse_int_field(row, "scheduling_latency_ns")
+    if scheduling_latency is None and gpu_duration is not None:
+        return max(cpu_duration - gpu_duration, 0)
+    return scheduling_latency
+
+
+def add_row_metrics(metrics, row):
+    cpu_duration = parse_int_field(row, "duration_ns", "duration")
+    if not is_non_negative(cpu_duration):
+        return
+
+    name = normalize_metric_name(row)
+    entry = metrics.setdefault(name, {"cpu": [], "gpu": [], "scheduling": []})
+    entry["cpu"].append(cpu_duration)
+
+    gpu_duration = parse_int_field(row, "gpu_duration_ns")
+    if is_non_negative(gpu_duration):
+        entry["gpu"].append(gpu_duration)
+
+    scheduling_latency = resolve_scheduling_latency(row, cpu_duration, gpu_duration)
+    if is_non_negative(scheduling_latency):
+        entry["scheduling"].append(scheduling_latency)
+
+
 def load_metrics(csv_paths):
     metrics = {}
     total_rows = 0
@@ -65,27 +99,7 @@ def load_metrics(csv_paths):
             reader = csv.DictReader(f)
             for row in reader:
                 total_rows += 1
-                name = (row.get("name") or "").strip()
-                if not name:
-                    name = "<unnamed>"
-                cpu_duration = parse_int_field(row, "duration_ns", "duration")
-                if cpu_duration is None or cpu_duration < 0:
-                    continue
-
-                entry = metrics.setdefault(
-                    name, {"cpu": [], "gpu": [], "scheduling": []}
-                )
-                entry["cpu"].append(cpu_duration)
-
-                gpu_duration = parse_int_field(row, "gpu_duration_ns")
-                if gpu_duration is not None and gpu_duration >= 0:
-                    entry["gpu"].append(gpu_duration)
-
-                scheduling_latency = parse_int_field(row, "scheduling_latency_ns")
-                if scheduling_latency is None and gpu_duration is not None:
-                    scheduling_latency = max(cpu_duration - gpu_duration, 0)
-                if scheduling_latency is not None and scheduling_latency >= 0:
-                    entry["scheduling"].append(scheduling_latency)
+                add_row_metrics(metrics, row)
 
     return metrics, total_rows
 
@@ -108,6 +122,64 @@ def basic_stats(values):
     }
 
 
+def optional_stats_values(stats):
+    if stats is None:
+        return {
+            "count": 0,
+            "median_ns": None,
+            "median_ms": None,
+            "mean_ns": None,
+            "mean_ms": None,
+            "total_ns": None,
+            "total_ms": None,
+        }
+    return stats
+
+
+def optional_stats_row(prefix, stats):
+    values = optional_stats_values(stats)
+    return {
+        f"{prefix}_count": values["count"],
+        f"median_{prefix}_ns": values["median_ns"],
+        f"median_{prefix}_ms": values["median_ms"],
+        f"mean_{prefix}_ns": values["mean_ns"],
+        f"mean_{prefix}_ms": values["mean_ms"],
+        f"total_{prefix}_ns": values["total_ns"],
+        f"total_{prefix}_ms": values["total_ms"],
+    }
+
+
+def median_scheduling_share(cpu_stats, scheduling_stats):
+    if scheduling_stats is None:
+        return None
+    cpu_median = cpu_stats["median_ns"]
+    if cpu_median <= 0:
+        return None
+    scheduling_median = scheduling_stats["median_ns"]
+    if scheduling_median is None:
+        return None
+    return 100.0 * scheduling_median / cpu_median
+
+
+def build_summary_row(name, cpu_stats, gpu_stats, scheduling_stats):
+    row = {
+        "name": name,
+        "count": cpu_stats["count"],
+        "median_ns": cpu_stats["median_ns"],
+        "median_ms": cpu_stats["median_ms"],
+        "mean_ns": cpu_stats["mean_ns"],
+        "mean_ms": cpu_stats["mean_ms"],
+        "total_ns": cpu_stats["total_ns"],
+        "total_ms": cpu_stats["total_ms"],
+    }
+    row.update(optional_stats_row("gpu", gpu_stats))
+    row.update(optional_stats_row("scheduling", scheduling_stats))
+    row["median_scheduling_share_pct"] = median_scheduling_share(
+        cpu_stats, scheduling_stats
+    )
+    return row
+
+
 def summarize(metrics):
     summary = []
     for name, entry in metrics.items():
@@ -117,56 +189,7 @@ def summarize(metrics):
 
         gpu_stats = basic_stats(entry["gpu"])
         scheduling_stats = basic_stats(entry["scheduling"])
-        median_scheduling_share_pct = None
-        if (
-            scheduling_stats is not None
-            and cpu_stats["median_ns"] > 0
-            and scheduling_stats["median_ns"] is not None
-        ):
-            median_scheduling_share_pct = (
-                100.0 * scheduling_stats["median_ns"] / cpu_stats["median_ns"]
-            )
-
-        row = {
-            "name": name,
-            "count": cpu_stats["count"],
-            "median_ns": cpu_stats["median_ns"],
-            "median_ms": cpu_stats["median_ms"],
-            "mean_ns": cpu_stats["mean_ns"],
-            "mean_ms": cpu_stats["mean_ms"],
-            "total_ns": cpu_stats["total_ns"],
-            "total_ms": cpu_stats["total_ms"],
-            "gpu_count": 0 if gpu_stats is None else gpu_stats["count"],
-            "median_gpu_ns": None if gpu_stats is None else gpu_stats["median_ns"],
-            "median_gpu_ms": None if gpu_stats is None else gpu_stats["median_ms"],
-            "mean_gpu_ns": None if gpu_stats is None else gpu_stats["mean_ns"],
-            "mean_gpu_ms": None if gpu_stats is None else gpu_stats["mean_ms"],
-            "total_gpu_ns": None if gpu_stats is None else gpu_stats["total_ns"],
-            "total_gpu_ms": None if gpu_stats is None else gpu_stats["total_ms"],
-            "scheduling_count": (
-                0 if scheduling_stats is None else scheduling_stats["count"]
-            ),
-            "median_scheduling_ns": (
-                None if scheduling_stats is None else scheduling_stats["median_ns"]
-            ),
-            "median_scheduling_ms": (
-                None if scheduling_stats is None else scheduling_stats["median_ms"]
-            ),
-            "mean_scheduling_ns": (
-                None if scheduling_stats is None else scheduling_stats["mean_ns"]
-            ),
-            "mean_scheduling_ms": (
-                None if scheduling_stats is None else scheduling_stats["mean_ms"]
-            ),
-            "total_scheduling_ns": (
-                None if scheduling_stats is None else scheduling_stats["total_ns"]
-            ),
-            "total_scheduling_ms": (
-                None if scheduling_stats is None else scheduling_stats["total_ms"]
-            ),
-            "median_scheduling_share_pct": median_scheduling_share_pct,
-        }
-        summary.append(row)
+        summary.append(build_summary_row(name, cpu_stats, gpu_stats, scheduling_stats))
 
     summary.sort(key=lambda x: x["total_ns"], reverse=True)
     return summary
