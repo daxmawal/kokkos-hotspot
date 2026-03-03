@@ -40,44 +40,45 @@ using GpuEvent = cudaEvent_t;
 using GpuError = cudaError_t;
 static constexpr GpuError gpu_success = cudaSuccess;
 
-static GpuError
-gpu_event_create(GpuEvent* event)
+static auto
+gpu_event_create(GpuEvent* event) -> GpuError
 {
   return cudaEventCreate(event);
 }
 
-static GpuError
-gpu_event_destroy(GpuEvent event)
+static auto
+gpu_event_destroy(GpuEvent event) -> GpuError
 {
   return cudaEventDestroy(event);
 }
 
-static GpuError
-gpu_event_record(GpuEvent event)
+static auto
+gpu_event_record(GpuEvent event) -> GpuError
 {
-  return cudaEventRecord(event, 0);
+  return cudaEventRecord(event, nullptr);
 }
 
-static GpuError
-gpu_event_elapsed_time(float* milliseconds, GpuEvent start, GpuEvent end)
+static auto
+gpu_event_elapsed_time(float* milliseconds, GpuEvent start,
+                       GpuEvent end) -> GpuError
 {
   return cudaEventElapsedTime(milliseconds, start, end);
 }
 
-static GpuError
-gpu_event_synchronize(GpuEvent event)
+static auto
+gpu_event_synchronize(GpuEvent event) -> GpuError
 {
   return cudaEventSynchronize(event);
 }
 
-static const char*
-gpu_error_string(GpuError err)
+static auto
+gpu_error_string(GpuError err) -> const char*
 {
   return cudaGetErrorString(err);
 }
 
-static bool
-gpu_runtime_ready()
+static auto
+gpu_runtime_ready() -> bool
 {
   int device_count = 0;
   if (cudaError_t count_err = cudaGetDeviceCount(&device_count);
@@ -85,7 +86,7 @@ gpu_runtime_ready()
     cudaGetLastError();
     return false;
   }
-  if (cudaError_t init_err = cudaFree(0); init_err != cudaSuccess) {
+  if (cudaError_t init_err = cudaFree(nullptr); init_err != cudaSuccess) {
     cudaGetLastError();
     return false;
   }
@@ -96,44 +97,45 @@ using GpuEvent = hipEvent_t;
 using GpuError = hipError_t;
 static constexpr GpuError gpu_success = hipSuccess;
 
-static GpuError
-gpu_event_create(GpuEvent* event)
+static auto
+gpu_event_create(GpuEvent* event) -> GpuError
 {
   return hipEventCreate(event);
 }
 
-static GpuError
-gpu_event_destroy(GpuEvent event)
+static auto
+gpu_event_destroy(GpuEvent event) -> GpuError
 {
   return hipEventDestroy(event);
 }
 
-static GpuError
-gpu_event_record(GpuEvent event)
+static auto
+gpu_event_record(GpuEvent event) -> GpuError
 {
   return hipEventRecord(event, nullptr);
 }
 
-static GpuError
-gpu_event_elapsed_time(float* milliseconds, GpuEvent start, GpuEvent end)
+static auto
+gpu_event_elapsed_time(float* milliseconds, GpuEvent start,
+                       GpuEvent end) -> GpuError
 {
   return hipEventElapsedTime(milliseconds, start, end);
 }
 
-static GpuError
-gpu_event_synchronize(GpuEvent event)
+static auto
+gpu_event_synchronize(GpuEvent event) -> GpuError
 {
   return hipEventSynchronize(event);
 }
 
-static const char*
-gpu_error_string(GpuError err)
+static auto
+gpu_error_string(GpuError err) -> const char*
 {
   return hipGetErrorString(err);
 }
 
-static bool
-gpu_runtime_ready()
+static auto
+gpu_runtime_ready() -> bool
 {
   int device_count = 0;
   hipError_t count_err = hipGetDeviceCount(&device_count);
@@ -152,11 +154,12 @@ struct GpuTimingContext {
   bool enabled = false;
   bool origin_ready = false;
   GpuEvent origin{};
-  std::mutex pool_mutex;
-  std::vector<GpuEvent> event_pool;
+  std::mutex pool_mutex{};
+  std::vector<GpuEvent> event_pool{};
 };
 
-static GpuTimingContext gpu_timing;
+static GpuTimingContext
+    gpu_timing;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 #endif
 
 struct KernelRecord {
@@ -165,86 +168,108 @@ struct KernelRecord {
   TimePoint begin;
   std::thread::id thread_id;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  GpuEventPair gpu_events;
+  GpuEventPair gpu_events{};
 #endif
 };
 
-static std::atomic<uint64_t> next_kid{1};
-static std::atomic<uint64_t> next_seq{0};
-static std::mutex active_mutex;
-static std::unordered_map<uint64_t, KernelRecord> active_records;
+struct RecordIds {
+  uint64_t sequence_id = 0;
+  uint64_t kernel_id = 0;
+};
 
-static std::mutex out_mutex;
-static std::ofstream out_file;
-static bool out_ready = false;
-static bool flush_each = false;
-static std::string out_path;
-static TimePoint start_time;
-static std::once_flag out_once;
+struct RecordTimes {
+  TimePoint dispatch_end;
+  TimePoint end;
+};
 
+static std::atomic<uint64_t>
+    next_kid{1};  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static std::atomic<uint64_t>
+    next_seq{0};  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static std::mutex
+    active_mutex;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static std::unordered_map<uint64_t, KernelRecord>
+    active_records;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+static std::mutex
+    out_mutex;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static std::ofstream
+    out_file;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 static bool
-debug_enabled()
+    out_ready = false;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static bool
+    flush_each = false;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static std::string
+    out_path;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static TimePoint
+    start_time;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static std::once_flag
+    out_once;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+static auto
+debug_enabled() -> bool
 {
   return tool_common::env_flag("KOKKOS_TIMING_DEBUG");
 }
 
-static void
-debug_log(const char* msg)
+static auto
+debug_log(std::string_view message) -> void
 {
-  tool_common::debug_log("KOKKOS_TIMING_DEBUG", "kokkos_profiling", msg);
+  tool_common::debug_log("KOKKOS_TIMING_DEBUG", "kokkos_profiling", message);
 }
 
-static std::string
-get_env(const char* name, const char* fallback)
+static auto
+get_env(const char* name, std::string_view fallback) -> std::string
 {
   return tool_common::get_env(name, fallback);
 }
 
-static bool
-env_flag(const char* name)
+static auto
+env_flag(const char* name) -> bool
 {
   return tool_common::env_flag(name);
 }
 
-static bool
-file_exists(const std::string& path)
+static auto
+file_exists(const std::string& path) -> bool
 {
   return tool_common::file_exists(path);
 }
 
-static std::string
-csv_escape(std::string_view input)
+static auto
+csv_escape(std::string_view input) -> std::string
 {
   return tool_common::csv_escape(input);
 }
 
-static bool
-gpu_events_requested()
+static auto
+gpu_events_requested() -> bool
 {
-  if (const char* raw = std::getenv("KOKKOS_TIMING_GPU_EVENTS");
-      !raw || !raw[0]) {
+  const char* raw = std::getenv("KOKKOS_TIMING_GPU_EVENTS");
+  if ((raw == nullptr) || (*raw == '\0')) {
     return true;
-  } else {
-    return std::strcmp(raw, "0") != 0;
   }
+  return std::strcmp(raw, "0") != 0;
 }
 
-static int64_t
-ms_to_ns(float ms)
+static auto
+ms_to_ns(float milliseconds) -> int64_t
 {
-  if (!std::isfinite(ms) || ms < 0.0f) {
+  if (!std::isfinite(milliseconds) || milliseconds < 0.0F) {
     return -1;
   }
-  const long double ns = static_cast<long double>(ms) * 1.0e6L;
-  if (ns > static_cast<long double>(std::numeric_limits<int64_t>::max())) {
+  const long double nanoseconds =
+      static_cast<long double>(milliseconds) * 1.0e6L;
+  if (nanoseconds >
+      static_cast<long double>(std::numeric_limits<int64_t>::max())) {
     return -1;
   }
-  return static_cast<int64_t>(ns + 0.5L);
+  return static_cast<int64_t>(std::llround(nanoseconds));
 }
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-static void
-gpu_debug_error(const char* what, GpuError err)
+static auto
+gpu_debug_error(const char* what, GpuError err) -> void
 {
   if (!debug_enabled()) {
     return;
@@ -256,8 +281,8 @@ gpu_debug_error(const char* what, GpuError err)
   tool_common::stderr_println(msg);
 }
 
-static bool
-gpu_init()
+static auto
+gpu_init() -> bool
 {
   if (!gpu_timing.requested) {
     return false;
@@ -285,8 +310,8 @@ gpu_init()
   return true;
 }
 
-static bool
-gpu_acquire_event(GpuEvent* event)
+static auto
+gpu_acquire_event(GpuEvent* event) -> bool
 {
   {
     std::scoped_lock lock(gpu_timing.pool_mutex);
@@ -304,15 +329,15 @@ gpu_acquire_event(GpuEvent* event)
   return true;
 }
 
-static void
-gpu_release_event(GpuEvent event)
+static auto
+gpu_release_event(GpuEvent event) -> void
 {
   std::scoped_lock lock(gpu_timing.pool_mutex);
   gpu_timing.event_pool.push_back(event);
 }
 
-static void
-gpu_release_event_pair(GpuEventPair& events)
+static auto
+gpu_release_event_pair(GpuEventPair& events) -> void
 {
   if (!events.valid) {
     return;
@@ -322,8 +347,8 @@ gpu_release_event_pair(GpuEventPair& events)
   events.valid = false;
 }
 
-static GpuEventPair
-gpu_acquire_event_pair()
+static auto
+gpu_acquire_event_pair() -> GpuEventPair
 {
   GpuEventPair events;
   if (!gpu_timing.enabled) {
@@ -340,8 +365,8 @@ gpu_acquire_event_pair()
   return events;
 }
 
-static GpuTimingSample
-gpu_collect_sample(const GpuEventPair& events)
+static auto
+gpu_collect_sample(const GpuEventPair& events) -> GpuTimingSample
 {
   GpuTimingSample sample;
   if (!gpu_timing.enabled || !events.valid) {
@@ -354,7 +379,7 @@ gpu_collect_sample(const GpuEventPair& events)
     return sample;
   }
 
-  float gpu_duration_ms = 0.0f;
+  float gpu_duration_ms = 0.0F;
   if (GpuError duration_err =
           gpu_event_elapsed_time(&gpu_duration_ms, events.begin, events.end);
       duration_err != gpu_success) {
@@ -367,7 +392,7 @@ gpu_collect_sample(const GpuEventPair& events)
     return sample;
   }
 
-  float gpu_begin_ms = 0.0f;
+  float gpu_begin_ms = 0.0F;
   if (GpuError begin_err =
           gpu_event_elapsed_time(&gpu_begin_ms, gpu_timing.origin, events.begin);
       begin_err == gpu_success) {
@@ -376,7 +401,7 @@ gpu_collect_sample(const GpuEventPair& events)
     gpu_debug_error("event elapsed (begin)", begin_err);
   }
 
-  float gpu_end_ms = 0.0f;
+  float gpu_end_ms = 0.0F;
   if (GpuError end_err =
           gpu_event_elapsed_time(&gpu_end_ms, gpu_timing.origin, events.end);
       end_err == gpu_success) {
@@ -387,8 +412,8 @@ gpu_collect_sample(const GpuEventPair& events)
   return sample;
 }
 
-static void
-gpu_shutdown()
+static auto
+gpu_shutdown() -> void
 {
   std::vector<GpuEvent> pool;
   {
@@ -414,8 +439,8 @@ gpu_shutdown()
 }
 #endif
 
-static void
-initialize_output_once()
+static auto
+initialize_output_once() -> void
 {
   start_time = std::chrono::steady_clock::now();
   out_path = get_env("KOKKOS_TIMING_OUT", "kokkos_kernel_times.csv");
@@ -440,11 +465,9 @@ initialize_output_once()
     write_header = false;
   }
 
-  std::ios::openmode mode = std::ios::out;
+  std::ios::openmode mode = std::ios::out | std::ios::trunc;
   if (append) {
-    mode |= std::ios::app;
-  } else {
-    mode |= std::ios::trunc;
+    mode = std::ios::out | std::ios::app;
   }
 
   out_file.open(out_path, mode);
@@ -467,46 +490,50 @@ initialize_output_once()
   }
 }
 
-static void
-open_output()
+static auto
+open_output() -> void
 {
   std::call_once(out_once, initialize_output_once);
 }
 
-static void
-write_optional_int(std::ofstream& out, int64_t value)
+static auto
+write_optional_int(std::ofstream& out, int64_t value) -> void
 {
   if (value >= 0) {
     out << value;
   }
 }
 
-static int64_t
-non_negative_diff(int64_t lhs, int64_t rhs)
+static auto
+non_negative_diff(int64_t lhs, int64_t rhs) -> int64_t
 {
   return lhs >= rhs ? (lhs - rhs) : 0;
 }
 
-static void
+static auto
 write_record(
-    uint64_t seq, uint64_t kid, const KernelRecord& record,
-    TimePoint dispatch_end, TimePoint end, const GpuTimingSample& gpu_sample)
+    const RecordIds& ids, const KernelRecord& record,
+    const RecordTimes& times,
+    const GpuTimingSample& gpu_sample) -> void
 {
   open_output();
   if (!out_ready) {
     return;
   }
 
-  const int64_t begin_ns =
+  int64_t begin_ns = 0;
+  begin_ns =
       std::chrono::duration_cast<std::chrono::nanoseconds>(record.begin -
                                                            start_time)
           .count();
-  const int64_t dispatch_end_ns =
+  int64_t dispatch_end_ns = 0;
+  dispatch_end_ns =
       std::chrono::duration_cast<std::chrono::nanoseconds>(
-          dispatch_end - start_time)
+          times.dispatch_end - start_time)
           .count();
-  const int64_t end_ns =
-      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start_time)
+  int64_t end_ns = 0;
+  end_ns =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(times.end - start_time)
           .count();
   const int64_t duration_ns = non_negative_diff(end_ns, begin_ns);
   const int64_t submit_ns = non_negative_diff(dispatch_end_ns, begin_ns);
@@ -518,7 +545,9 @@ write_record(
   const auto thread_hash = std::hash<std::thread::id>{}(record.thread_id);
 
   std::scoped_lock lock(out_mutex);
-  out_file << seq << ',' << kid << ',' << csv_escape(record.name) << ','
+  out_file << ids.sequence_id << ',' << ids.kernel_id << ','
+           << csv_escape(record.name)
+           << ','
            << csv_escape(record.type) << ',' << thread_hash << ',' << begin_ns
            << ',' << end_ns << ',' << duration_ns << ',' << dispatch_end_ns
            << ',' << submit_ns << ',' << wait_ns << ',';
@@ -535,20 +564,22 @@ write_record(
   }
 }
 
-static void
-begin_kernel(const char* name, const char* type, uint64_t* kID)
+static auto
+begin_kernel(const char* kernel_name, std::string_view kernel_type,
+             uint64_t* kernel_id_ptr) -> void
 {
   open_output();
-  if (!kID) {
+  if (kernel_id_ptr == nullptr) {
     debug_log("missing kID pointer");
     return;
   }
-  const uint64_t kid = next_kid.fetch_add(1, std::memory_order_relaxed);
-  *kID = kid;
+  uint64_t kernel_id = 0;
+  kernel_id = next_kid.fetch_add(1, std::memory_order_relaxed);
+  *kernel_id_ptr = kernel_id;
 
   KernelRecord record;
-  record.name = name ? name : "";
-  record.type = type ? type : "";
+  record.name = (kernel_name != nullptr) ? kernel_name : "";
+  record.type.assign(kernel_type);
   record.begin = std::chrono::steady_clock::now();
   record.thread_id = std::this_thread::get_id();
 
@@ -566,25 +597,25 @@ begin_kernel(const char* name, const char* type, uint64_t* kID)
 #endif
 
   std::scoped_lock lock(active_mutex);
-  active_records[kid] = std::move(record);
+  active_records[kernel_id] = std::move(record);
 }
 
-static void
-end_kernel(const char* type, const uint64_t kID)
+static auto
+end_kernel(const char* kernel_type, uint64_t kernel_id) -> void
 {
   KernelRecord record;
   {
     std::scoped_lock lock(active_mutex);
-    auto it = active_records.find(kID);
-    if (it == active_records.end()) {
+    auto record_it = active_records.find(kernel_id);
+    if (record_it == active_records.end()) {
       return;
     }
-    record = std::move(it->second);
-    active_records.erase(it);
+    record = std::move(record_it->second);
+    active_records.erase(record_it);
   }
 
-  if (record.type.empty() && type) {
-    record.type = type;
+  if (record.type.empty() && (kernel_type != nullptr)) {
+    record.type = kernel_type;
   }
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -609,13 +640,16 @@ end_kernel(const char* type, const uint64_t kID)
   }
 #endif
 
-  const uint64_t seq = next_seq.fetch_add(1, std::memory_order_relaxed) + 1;
+  uint64_t sequence_id = 0;
+  sequence_id = next_seq.fetch_add(1, std::memory_order_relaxed) + 1;
+  const RecordIds ids{sequence_id, kernel_id};
+  const RecordTimes times{dispatch_end_time, end_time};
   write_record(
-      seq, kID, record, dispatch_end_time, end_time, gpu_sample);
+      ids, record, times, gpu_sample);
 }
 
-static void
-release_active_records()
+static auto
+release_active_records() -> void
 {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   std::unordered_map<uint64_t, KernelRecord> pending;
@@ -636,8 +670,14 @@ release_active_records()
 
 extern "C" void
 kokkosp_init_library(
-    int, uint64_t, uint32_t, Kokkos_Profiling_KokkosPDeviceInfo*)
+    int load_seq, uint64_t interface_ver,  // NOLINT(bugprone-easily-swappable-parameters)
+    uint32_t dev_info_count,
+    Kokkos_Profiling_KokkosPDeviceInfo* device_info)
 {
+  static_cast<void>(load_seq);
+  static_cast<void>(interface_ver);
+  static_cast<void>(dev_info_count);
+  static_cast<void>(device_info);
   open_output();
   debug_log("init");
 }
@@ -659,8 +699,11 @@ kokkosp_finalize_library()
 }
 
 extern "C" void
-kokkosp_begin_parallel_for(const char* name, const uint32_t, uint64_t* kID)
+kokkosp_begin_parallel_for(
+    const char* name, const uint32_t dev_info,
+    uint64_t* kID)  // NOLINT(readability-non-const-parameter)
 {
+  static_cast<void>(dev_info);
   begin_kernel(name, "for", kID);
 }
 
@@ -671,8 +714,11 @@ kokkosp_end_parallel_for(const uint64_t kID)
 }
 
 extern "C" void
-kokkosp_begin_parallel_reduce(const char* name, const uint32_t, uint64_t* kID)
+kokkosp_begin_parallel_reduce(
+    const char* name, const uint32_t dev_info,
+    uint64_t* kID)  // NOLINT(readability-non-const-parameter)
 {
+  static_cast<void>(dev_info);
   begin_kernel(name, "reduce", kID);
 }
 
@@ -683,8 +729,11 @@ kokkosp_end_parallel_reduce(const uint64_t kID)
 }
 
 extern "C" void
-kokkosp_begin_parallel_scan(const char* name, const uint32_t, uint64_t* kID)
+kokkosp_begin_parallel_scan(
+    const char* name, const uint32_t dev_info,
+    uint64_t* kID)  // NOLINT(readability-non-const-parameter)
 {
+  static_cast<void>(dev_info);
   begin_kernel(name, "scan", kID);
 }
 

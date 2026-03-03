@@ -2,39 +2,46 @@
 
 #include <Kokkos_Core.hpp>
 
-inline void
-kernel_axpy(Kokkos::View<double*>& x, Kokkos::View<double*>& y, double alpha)
+inline auto
+kernel_axpy(Kokkos::View<double*>& x_view, double alpha,
+            Kokkos::View<double*>& y_view) -> void
 {
-  const int n = static_cast<int>(x.extent(0));
-  auto* x_ptr = x.data();
-  auto* y_ptr = y.data();
+  const int num_elements = static_cast<int>(x_view.extent(0));
   Kokkos::parallel_for(
-      "kernel_axpy", Kokkos::RangePolicy<>(0, n),
-      KOKKOS_LAMBDA(int i) { y_ptr[i] = alpha * x_ptr[i] + y_ptr[i]; });
+      "kernel_axpy", Kokkos::RangePolicy<>(0, num_elements),
+      KOKKOS_LAMBDA(int index) {
+        y_view(index) = alpha * x_view(index) + y_view(index);
+      });
   Kokkos::fence();
 }
 
-inline double
-kernel_reduce(const Kokkos::View<double*>& y)
+inline auto
+kernel_reduce(const Kokkos::View<double*>& y_view) -> double
 {
-  const int n = static_cast<int>(y.extent(0));
-  auto* y_ptr = y.data();
+  constexpr double kReductionScale = 0.5;
+  const int num_elements = static_cast<int>(y_view.extent(0));
   double sum = 0.0;
   Kokkos::parallel_reduce(
-      "kernel_reduce", Kokkos::RangePolicy<>(0, n),
-      KOKKOS_LAMBDA(int i, double& lsum) { lsum += y_ptr[i] * 0.5; }, sum);
+      "kernel_reduce", Kokkos::RangePolicy<>(0, num_elements),
+      KOKKOS_LAMBDA(int index, double& local_sum) {
+        local_sum += y_view(index) * kReductionScale;
+      },
+      sum);
   Kokkos::fence();
   return sum;
 }
 
-inline void
-kernel_update(Kokkos::View<double*>& x, int step)
+inline auto
+kernel_update(Kokkos::View<double*>& x_view, int step) -> void
 {
-  const int n = static_cast<int>(x.extent(0));
-  auto* x_ptr = x.data();
-  const double scale = 1.0 + 1.0e-6 * step;
+  constexpr double kStepScale = 1.0e-6;
+  constexpr int kIndexMask = 7;
+  const int num_elements = static_cast<int>(x_view.extent(0));
+  const double scale = 1.0 + kStepScale * step;
   Kokkos::parallel_for(
-      "kernel_update", Kokkos::RangePolicy<>(0, n),
-      KOKKOS_LAMBDA(int i) { x_ptr[i] = x_ptr[i] * scale + (i & 7); });
+      "kernel_update", Kokkos::RangePolicy<>(0, num_elements),
+      KOKKOS_LAMBDA(int index) {
+        x_view(index) = x_view(index) * scale + (index & kIndexMask);
+      });
   Kokkos::fence();
 }
