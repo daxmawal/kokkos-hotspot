@@ -13,7 +13,7 @@ Options:
       --no-configure       Do not auto-configure if compile_commands.json is missing
       --configure-only     Only (re)configure CMake and exit
       --no-sanitize-cuda-flags
-                            Disable automatic removal of CUDA-only flags from compile_commands.json
+                            Disable CUDA/HIP sanitization for clang-tidy (flags, include paths, Kokkos host-only overlay)
   -j, --jobs N             Number of parallel clang-tidy jobs (default: number of CPUs)
       --file-regex REGEX   Regex applied to paths from compile_commands (default: ^(src|examples)/)
       --header-filter R    clang-tidy header-filter regex (default: project include/src/examples)
@@ -209,13 +209,63 @@ if [[ "$SANITIZE_CUDA_FLAGS" -eq 1 ]]; then
   TIDY_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clang-tidy-db.XXXXXX")"
   TEMP_DIRS+=("$TIDY_BUILD_DIR")
   SANITIZED_COMPILE_DB="$TIDY_BUILD_DIR/compile_commands.json"
-  python3 - "$COMPILE_DB" "$SANITIZED_COMPILE_DB" <<'PY'
+  KOKKOS_CONFIG_OVERLAY=""
+  KOKKOS_CONFIG_SRC="$BUILD_DIR/external/kokkos/KokkosCore_config.h"
+  KOKKOS_SETUP_BACKEND_SRC="$BUILD_DIR/external/kokkos/KokkosCore_Config_SetupBackend.hpp"
+  if [[ -f "$KOKKOS_CONFIG_SRC" && -f "$KOKKOS_SETUP_BACKEND_SRC" ]]; then
+    KOKKOS_CONFIG_OVERLAY="$TIDY_BUILD_DIR/kokkos-config-overlay"
+    mkdir -p "$KOKKOS_CONFIG_OVERLAY"
+    cp "$KOKKOS_CONFIG_SRC" "$KOKKOS_CONFIG_OVERLAY/KokkosCore_config.h"
+    cp "$KOKKOS_SETUP_BACKEND_SRC" \
+      "$KOKKOS_CONFIG_OVERLAY/KokkosCore_Config_SetupBackend.hpp"
+    python3 - \
+      "$KOKKOS_CONFIG_OVERLAY/KokkosCore_config.h" \
+      "$KOKKOS_CONFIG_OVERLAY/KokkosCore_Config_SetupBackend.hpp" <<'PY'
+import pathlib
+import re
+import sys
+
+config_header, setup_backend = sys.argv[1:3]
+
+config_text = pathlib.Path(config_header).read_text(encoding="utf-8")
+config_text = re.sub(
+    r"^#define\s+KOKKOS_ENABLE_CUDA(\b.*)$",
+    "/* #undef KOKKOS_ENABLE_CUDA */",
+    config_text,
+    flags=re.MULTILINE,
+)
+config_text = re.sub(
+    r"^#define\s+KOKKOS_ENABLE_CUDA_LAMBDA(\b.*)$",
+    "/* #undef KOKKOS_ENABLE_CUDA_LAMBDA */",
+    config_text,
+    flags=re.MULTILINE,
+)
+config_text = re.sub(
+    r"^#define\s+KOKKOS_ENABLE_HIP(\b.*)$",
+    "/* #undef KOKKOS_ENABLE_HIP */",
+    config_text,
+    flags=re.MULTILINE,
+)
+pathlib.Path(config_header).write_text(config_text, encoding="utf-8")
+
+pathlib.Path(setup_backend).write_text(
+    """// clang-tidy host-only overlay: intentionally empty backend setup
+#ifndef KOKKOS_SETUP_HPP_
+#define KOKKOS_SETUP_HPP_
+#endif
+""",
+    encoding="utf-8",
+)
+PY
+  fi
+
+  python3 - "$COMPILE_DB" "$SANITIZED_COMPILE_DB" "$KOKKOS_CONFIG_OVERLAY" <<'PY'
 import json
 import shlex
 import sys
 from collections import Counter
 
-input_db, output_db = sys.argv[1:3]
+input_db, output_db, config_overlay = sys.argv[1:4]
 
 drop_exact = {
     "-extended-lambda",
@@ -236,11 +286,13 @@ drop_pairs = {
     "-gencode",
     "--generate-code",
 }
+drop_include_path_tokens = ("/cuda", "/hip")
 
 with open(input_db, "r", encoding="utf-8") as f:
     entries = json.load(f)
 
 removed = Counter()
+removed_include_dirs = Counter()
 
 for entry in entries:
     args = entry.get("arguments")
@@ -252,9 +304,32 @@ for entry in entries:
         continue
 
     kept = [args[0]]
+    if config_overlay:
+        kept.extend(["-I", config_overlay])
+
     i = 1
     while i < len(args):
         arg = args[i]
+
+        if arg in {"-I", "-isystem"} and (i + 1) < len(args):
+            include_dir = args[i + 1]
+            include_dir_lower = include_dir.lower()
+            if any(token in include_dir_lower for token in drop_include_path_tokens):
+                removed_include_dirs[include_dir] += 1
+                i += 2
+                continue
+            kept.extend([arg, include_dir])
+            i += 2
+            continue
+
+        if arg.startswith("-I") and len(arg) > 2:
+            include_dir = arg[2:]
+            include_dir_lower = include_dir.lower()
+            if any(token in include_dir_lower for token in drop_include_path_tokens):
+                removed_include_dirs[include_dir] += 1
+                i += 1
+                continue
+
         drop = arg in drop_exact or any(arg.startswith(prefix) for prefix in drop_prefixes)
         if drop:
             removed[arg] += 1
@@ -273,12 +348,27 @@ for entry in entries:
 with open(output_db, "w", encoding="utf-8") as f:
     json.dump(entries, f, indent=2)
 
-removed_total = sum(removed.values())
-if removed_total:
+removed_flag_total = sum(removed.values())
+removed_include_total = sum(removed_include_dirs.values())
+
+summary_parts = []
+if removed_flag_total:
     top = ", ".join(f"{flag} x{count}" for flag, count in removed.most_common(4))
-    print(f"Sanitized compile database: removed {removed_total} CUDA-only flag(s) ({top})")
+    summary_parts.append(f"removed {removed_flag_total} CUDA/HIP flag(s) ({top})")
+if removed_include_total:
+    top_inc = ", ".join(
+        f"{path} x{count}" for path, count in removed_include_dirs.most_common(2)
+    )
+    summary_parts.append(
+        f"removed {removed_include_total} CUDA/HIP include path(s) ({top_inc})"
+    )
+if config_overlay:
+    summary_parts.append("applied Kokkos host-only config overlay")
+
+if summary_parts:
+    print("Sanitized compile database: " + "; ".join(summary_parts))
 else:
-    print("Sanitized compile database: no CUDA-only flags removed")
+    print("Sanitized compile database: no CUDA/HIP sanitization needed")
 PY
 fi
 

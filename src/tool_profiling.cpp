@@ -163,9 +163,9 @@ static GpuTimingContext
 #endif
 
 struct KernelRecord {
-  std::string name{};
-  std::string type{};
-  TimePoint begin{};
+  std::string name;
+  std::string type;
+  TimePoint begin;
   std::thread::id thread_id;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   GpuEventPair gpu_events{};
@@ -178,8 +178,8 @@ struct RecordIds {
 };
 
 struct RecordTimes {
-  TimePoint dispatch_end{};
-  TimePoint end{};
+  TimePoint dispatch_end;
+  TimePoint end;
 };
 
 static std::atomic<uint64_t>
