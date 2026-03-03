@@ -13,59 +13,61 @@
 
 namespace tool_common {
 
-bool
-env_flag(const char* name)
+auto
+env_flag(const char* name) -> bool
 {
-  if (const char* val = std::getenv(name); val && val[0]) {
+  if (const char* val = std::getenv(name);
+      (val != nullptr) && (*val != '\0')) {
     return std::strcmp(val, "0") != 0;
   }
   return false;
 }
 
-std::string
-get_env(const char* name, const char* fallback)
+auto
+get_env(const char* name, std::string_view fallback) -> std::string
 {
-  if (const char* val = std::getenv(name); val && val[0]) {
-    return std::string(val);
+  if (const char* val = std::getenv(name);
+      (val != nullptr) && (*val != '\0')) {
+    return {val};
   }
-  return std::string(fallback ? fallback : "");
+  return {fallback.begin(), fallback.end()};
 }
 
-bool
-file_exists(const std::string& path)
+auto
+file_exists(const std::string& path) -> bool
 {
-  std::ifstream in(path);
-  return in.good();
+  std::ifstream input_stream(path);
+  return input_stream.good();
 }
 
-std::string
-csv_escape(std::string_view input)
+auto
+csv_escape(std::string_view input) -> std::string
 {
   bool needs_quotes = false;
-  for (char c : input) {
-    if (c == ',' || c == '"' || c == '\n' || c == '\r') {
+  for (char chr : input) {
+    if (chr == ',' || chr == '"' || chr == '\n' || chr == '\r') {
       needs_quotes = true;
       break;
     }
   }
   if (!needs_quotes) {
-    return std::string(input);
+    return {input.begin(), input.end()};
   }
   std::string out;
   out.reserve(input.size() + 2);
   out.push_back('"');
-  for (char c : input) {
-    if (c == '"') {
+  for (char chr : input) {
+    if (chr == '"') {
       out.push_back('"');
     }
-    out.push_back(c);
+    out.push_back(chr);
   }
   out.push_back('"');
   return out;
 }
 
-void
-stderr_println(std::string_view msg)
+auto
+stderr_println(std::string_view msg) -> void
 {
 #if defined(__cpp_lib_print)
   std::print(stderr, "{}\n", msg);
@@ -75,16 +77,17 @@ stderr_println(std::string_view msg)
 #endif
 }
 
-void
-debug_log(const char* env_name, const char* tag, const char* msg)
+auto
+debug_log(const char* env_name, std::string_view tag,
+          std::string_view msg) -> void
 {
   if (!env_flag(env_name)) {
     return;
   }
   std::string line = "[";
-  line += tag;
+  line.append(tag);
   line += "] ";
-  line += msg;
+  line.append(msg);
   stderr_println(line);
 }
 
