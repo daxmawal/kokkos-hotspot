@@ -2,13 +2,6 @@
 
 Toolkit to identify the most expensive Kokkos kernels in you application.
 
-This repository contains:
-
-- A Kokkos Tools profiling library (`libkokkos_profiling_tool.so`) that writes
-  timings to CSV
-- A small sample app (`kokkos_app`) to generate traces
-- Analysis scripts to rank hotspots and generate a plot
-
 ## Prerequisites
 
 - CMake >= 3.16
