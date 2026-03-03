@@ -32,9 +32,9 @@ kernel_update(Kokkos::View<double*>& x, int step)
 {
   const int n = static_cast<int>(x.extent(0));
   auto* x_ptr = x.data();
-  const double scale = 1.0 + 1.0e-6 * static_cast<double>(step);
+  const double scale = 1.0 + 1.0e-6 * step;
   Kokkos::parallel_for(
       "kernel_update", Kokkos::RangePolicy<>(0, n),
-      KOKKOS_LAMBDA(int i) { x_ptr[i] = x_ptr[i] * scale + double(i & 7); });
+      KOKKOS_LAMBDA(int i) { x_ptr[i] = x_ptr[i] * scale + (i & 7); });
   Kokkos::fence();
 }

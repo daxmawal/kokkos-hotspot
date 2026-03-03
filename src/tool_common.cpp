@@ -4,21 +4,33 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#if defined(__has_include)
+#if __has_include(<print>)
+#include <print>
+#if defined(__cpp_lib_print)
+#define KOKKOS_HOTSPOT_HAS_STD_PRINT 1
+#endif
+#endif
+#endif
+#ifndef KOKKOS_HOTSPOT_HAS_STD_PRINT
+#define KOKKOS_HOTSPOT_HAS_STD_PRINT 0
+#endif
 
 namespace tool_common {
 
 bool
 env_flag(const char* name)
 {
-  const char* val = std::getenv(name);
-  return val && val[0] && std::strcmp(val, "0") != 0;
+  if (const char* val = std::getenv(name); val && val[0]) {
+    return std::strcmp(val, "0") != 0;
+  }
+  return false;
 }
 
 std::string
 get_env(const char* name, const char* fallback)
 {
-  const char* val = std::getenv(name);
-  if (val && val[0]) {
+  if (const char* val = std::getenv(name); val && val[0]) {
     return std::string(val);
   }
   return std::string(fallback ? fallback : "");
@@ -58,12 +70,27 @@ csv_escape(std::string_view input)
 }
 
 void
+stderr_println(std::string_view msg)
+{
+#if KOKKOS_HOTSPOT_HAS_STD_PRINT
+  std::print(stderr, "{}\n", msg);
+#else
+  std::fwrite(msg.data(), sizeof(char), msg.size(), stderr);
+  std::fputc('\n', stderr);
+#endif
+}
+
+void
 debug_log(const char* env_name, const char* tag, const char* msg)
 {
   if (!env_flag(env_name)) {
     return;
   }
-  std::fprintf(stderr, "[%s] %s\n", tag, msg);
+  std::string line = "[";
+  line += tag;
+  line += "] ";
+  line += msg;
+  stderr_println(line);
 }
 
 }  // namespace tool_common

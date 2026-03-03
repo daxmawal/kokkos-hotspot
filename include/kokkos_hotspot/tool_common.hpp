@@ -9,6 +9,7 @@ bool env_flag(const char* name);
 std::string get_env(const char* name, const char* fallback);
 bool file_exists(const std::string& path);
 std::string csv_escape(std::string_view input);
+void stderr_println(std::string_view msg);
 void debug_log(const char* env_name, const char* tag, const char* msg);
 
 }  // namespace tool_common
