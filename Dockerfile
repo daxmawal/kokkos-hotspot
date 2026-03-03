@@ -32,8 +32,9 @@ RUN cmake -S /tmp/kokkos -B /tmp/kokkos/build \
 
 WORKDIR /work
 COPY . /work
-RUN chmod +x /work/scripts/analyze_hotspots.sh
 RUN cmake -S /work -B /work/build \
+  -DKOKKOS_USE_SUBMODULE=OFF \
+  -DKOKKOS_AUTO_BACKENDS=OFF \
   -DKokkos_DIR=${KOKKOS_INSTALL_PREFIX}/lib/cmake/Kokkos \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_STANDARD=20 \

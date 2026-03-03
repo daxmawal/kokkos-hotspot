@@ -35,7 +35,7 @@ main(int argc, char** argv)
 
     Kokkos::parallel_for(
         "init", Kokkos::RangePolicy<>(0, n), KOKKOS_LAMBDA(int i) {
-          x(i) = 0.5 * static_cast<double>(i);
+          x(i) = 0.5 * i;
           y(i) = 1.0;
         });
     Kokkos::fence();

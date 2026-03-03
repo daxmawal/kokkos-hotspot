@@ -5,7 +5,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -81,13 +80,12 @@ static bool
 gpu_runtime_ready()
 {
   int device_count = 0;
-  cudaError_t count_err = cudaGetDeviceCount(&device_count);
-  if (count_err != cudaSuccess || device_count <= 0) {
+  if (cudaError_t count_err = cudaGetDeviceCount(&device_count);
+      count_err != cudaSuccess || device_count <= 0) {
     cudaGetLastError();
     return false;
   }
-  cudaError_t init_err = cudaFree(0);
-  if (init_err != cudaSuccess) {
+  if (cudaError_t init_err = cudaFree(0); init_err != cudaSuccess) {
     cudaGetLastError();
     return false;
   }
@@ -223,11 +221,12 @@ csv_escape(std::string_view input)
 static bool
 gpu_events_requested()
 {
-  const char* raw = std::getenv("KOKKOS_TIMING_GPU_EVENTS");
-  if (!raw || !raw[0]) {
+  if (const char* raw = std::getenv("KOKKOS_TIMING_GPU_EVENTS");
+      !raw || !raw[0]) {
     return true;
+  } else {
+    return std::strcmp(raw, "0") != 0;
   }
-  return env_flag("KOKKOS_TIMING_GPU_EVENTS");
 }
 
 static int64_t
@@ -250,9 +249,11 @@ gpu_debug_error(const char* what, GpuError err)
   if (!debug_enabled()) {
     return;
   }
-  std::fprintf(
-      stderr, "[kokkos_profiling] %s failed: %s\n", what,
-      gpu_error_string(err));
+  std::string msg = "[kokkos_profiling] ";
+  msg += what;
+  msg += " failed: ";
+  msg += gpu_error_string(err);
+  tool_common::stderr_println(msg);
 }
 
 static bool
@@ -263,18 +264,18 @@ gpu_init()
   }
   if (!gpu_runtime_ready()) {
     if (debug_enabled()) {
-      std::fprintf(
-          stderr, "[kokkos_profiling] no GPU runtime/device available\n");
+      tool_common::stderr_println(
+          "[kokkos_profiling] no GPU runtime/device available");
     }
     return false;
   }
-  GpuError create_err = gpu_event_create(&gpu_timing.origin);
-  if (create_err != gpu_success) {
+  if (GpuError create_err = gpu_event_create(&gpu_timing.origin);
+      create_err != gpu_success) {
     gpu_debug_error("event create (origin)", create_err);
     return false;
   }
-  GpuError record_err = gpu_event_record(gpu_timing.origin);
-  if (record_err != gpu_success) {
+  if (GpuError record_err = gpu_event_record(gpu_timing.origin);
+      record_err != gpu_success) {
     gpu_debug_error("event record (origin)", record_err);
     gpu_event_destroy(gpu_timing.origin);
     return false;
@@ -288,15 +289,15 @@ static bool
 gpu_acquire_event(GpuEvent* event)
 {
   {
-    std::lock_guard<std::mutex> lock(gpu_timing.pool_mutex);
+    std::scoped_lock lock(gpu_timing.pool_mutex);
     if (!gpu_timing.event_pool.empty()) {
       *event = gpu_timing.event_pool.back();
       gpu_timing.event_pool.pop_back();
       return true;
     }
   }
-  GpuError create_err = gpu_event_create(event);
-  if (create_err != gpu_success) {
+  if (GpuError create_err = gpu_event_create(event);
+      create_err != gpu_success) {
     gpu_debug_error("event create", create_err);
     return false;
   }
@@ -306,7 +307,7 @@ gpu_acquire_event(GpuEvent* event)
 static void
 gpu_release_event(GpuEvent event)
 {
-  std::lock_guard<std::mutex> lock(gpu_timing.pool_mutex);
+  std::scoped_lock lock(gpu_timing.pool_mutex);
   gpu_timing.event_pool.push_back(event);
 }
 
@@ -347,16 +348,16 @@ gpu_collect_sample(const GpuEventPair& events)
     return sample;
   }
 
-  GpuError sync_err = gpu_event_synchronize(events.end);
-  if (sync_err != gpu_success) {
+  if (GpuError sync_err = gpu_event_synchronize(events.end);
+      sync_err != gpu_success) {
     gpu_debug_error("event synchronize (end)", sync_err);
     return sample;
   }
 
   float gpu_duration_ms = 0.0f;
-  GpuError duration_err =
-      gpu_event_elapsed_time(&gpu_duration_ms, events.begin, events.end);
-  if (duration_err != gpu_success) {
+  if (GpuError duration_err =
+          gpu_event_elapsed_time(&gpu_duration_ms, events.begin, events.end);
+      duration_err != gpu_success) {
     gpu_debug_error("event elapsed (duration)", duration_err);
     return sample;
   }
@@ -367,18 +368,18 @@ gpu_collect_sample(const GpuEventPair& events)
   }
 
   float gpu_begin_ms = 0.0f;
-  GpuError begin_err =
-      gpu_event_elapsed_time(&gpu_begin_ms, gpu_timing.origin, events.begin);
-  if (begin_err == gpu_success) {
+  if (GpuError begin_err =
+          gpu_event_elapsed_time(&gpu_begin_ms, gpu_timing.origin, events.begin);
+      begin_err == gpu_success) {
     sample.begin_ns = ms_to_ns(gpu_begin_ms);
   } else {
     gpu_debug_error("event elapsed (begin)", begin_err);
   }
 
   float gpu_end_ms = 0.0f;
-  GpuError end_err =
-      gpu_event_elapsed_time(&gpu_end_ms, gpu_timing.origin, events.end);
-  if (end_err == gpu_success) {
+  if (GpuError end_err =
+          gpu_event_elapsed_time(&gpu_end_ms, gpu_timing.origin, events.end);
+      end_err == gpu_success) {
     sample.end_ns = ms_to_ns(gpu_end_ms);
   } else {
     gpu_debug_error("event elapsed (end)", end_err);
@@ -391,7 +392,7 @@ gpu_shutdown()
 {
   std::vector<GpuEvent> pool;
   {
-    std::lock_guard<std::mutex> lock(gpu_timing.pool_mutex);
+    std::scoped_lock lock(gpu_timing.pool_mutex);
     pool.swap(gpu_timing.event_pool);
   }
   for (GpuEvent event : pool) {
@@ -429,10 +430,9 @@ open_output()
     }
 #else
     if (gpu_events_requested() && debug_enabled()) {
-      std::fprintf(
-          stderr,
+      tool_common::stderr_println(
           "[kokkos_profiling] KOKKOS_TIMING_GPU_EVENTS requested but backend "
-          "has no GPU support\n");
+          "has no GPU support");
     }
 #endif
 
@@ -451,8 +451,8 @@ open_output()
     out_file.open(out_path, mode);
     if (!out_file.is_open()) {
       if (debug_enabled()) {
-        std::fprintf(
-            stderr, "[kokkos_profiling] unable to open %s\n", out_path.c_str());
+        tool_common::stderr_println(
+            std::string("[kokkos_profiling] unable to open ") + out_path);
       }
       return;
     }
@@ -514,7 +514,7 @@ write_record(
   const uint64_t thread_hash =
       static_cast<uint64_t>(std::hash<std::thread::id>{}(thread_id));
 
-  std::lock_guard<std::mutex> lock(out_mutex);
+  std::scoped_lock lock(out_mutex);
   out_file << seq << ',' << kid << ',' << csv_escape(name) << ','
            << csv_escape(type) << ',' << thread_hash << ',' << begin_ns << ','
            << end_ns << ',' << duration_ns << ',' << dispatch_end_ns << ','
@@ -553,8 +553,8 @@ begin_kernel(const char* name, const char* type, uint64_t* kID)
   if (gpu_timing.enabled) {
     record.gpu_events = gpu_acquire_event_pair();
     if (record.gpu_events.valid) {
-      GpuError record_err = gpu_event_record(record.gpu_events.begin);
-      if (record_err != gpu_success) {
+      if (GpuError record_err = gpu_event_record(record.gpu_events.begin);
+          record_err != gpu_success) {
         gpu_debug_error("event record (begin)", record_err);
         gpu_release_event_pair(record.gpu_events);
       }
@@ -562,7 +562,7 @@ begin_kernel(const char* name, const char* type, uint64_t* kID)
   }
 #endif
 
-  std::lock_guard<std::mutex> lock(active_mutex);
+  std::scoped_lock lock(active_mutex);
   active_records[kid] = std::move(record);
 }
 
@@ -571,7 +571,7 @@ end_kernel(const char* type, const uint64_t kID)
 {
   KernelRecord record;
   {
-    std::lock_guard<std::mutex> lock(active_mutex);
+    std::scoped_lock lock(active_mutex);
     auto it = active_records.find(kID);
     if (it == active_records.end()) {
       return;
@@ -586,8 +586,8 @@ end_kernel(const char* type, const uint64_t kID)
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   if (gpu_timing.enabled && record.gpu_events.valid) {
-    GpuError record_err = gpu_event_record(record.gpu_events.end);
-    if (record_err != gpu_success) {
+    if (GpuError record_err = gpu_event_record(record.gpu_events.end);
+        record_err != gpu_success) {
       gpu_debug_error("event record (end)", record_err);
       gpu_release_event_pair(record.gpu_events);
     }
@@ -618,7 +618,7 @@ release_active_records()
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   std::unordered_map<uint64_t, KernelRecord> pending;
   {
-    std::lock_guard<std::mutex> lock(active_mutex);
+    std::scoped_lock lock(active_mutex);
     pending.swap(active_records);
   }
   for (auto& entry : pending) {
@@ -627,7 +627,7 @@ release_active_records()
     }
   }
 #else
-  std::lock_guard<std::mutex> lock(active_mutex);
+  std::scoped_lock lock(active_mutex);
   active_records.clear();
 #endif
 }
@@ -651,7 +651,7 @@ kokkosp_finalize_library()
   if (!out_ready) {
     return;
   }
-  std::lock_guard<std::mutex> lock(out_mutex);
+  std::scoped_lock lock(out_mutex);
   out_file.flush();
   out_file.close();
 }
