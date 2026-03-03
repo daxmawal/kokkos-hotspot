@@ -4,16 +4,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+
 #if defined(__has_include)
 #if __has_include(<print>)
 #include <print>
-#if defined(__cpp_lib_print)
-#define KOKKOS_HOTSPOT_HAS_STD_PRINT 1
 #endif
-#endif
-#endif
-#ifndef KOKKOS_HOTSPOT_HAS_STD_PRINT
-#define KOKKOS_HOTSPOT_HAS_STD_PRINT 0
 #endif
 
 namespace tool_common {
@@ -72,7 +67,7 @@ csv_escape(std::string_view input)
 void
 stderr_println(std::string_view msg)
 {
-#if KOKKOS_HOTSPOT_HAS_STD_PRINT
+#if defined(__cpp_lib_print)
   std::print(stderr, "{}\n", msg);
 #else
   std::fwrite(msg.data(), sizeof(char), msg.size(), stderr);

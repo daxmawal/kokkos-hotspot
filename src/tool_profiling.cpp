@@ -415,58 +415,62 @@ gpu_shutdown()
 #endif
 
 static void
-open_output()
+initialize_output_once()
 {
-  std::call_once(out_once, [] {
-    start_time = std::chrono::steady_clock::now();
-    out_path = get_env("KOKKOS_TIMING_OUT", "kokkos_kernel_times.csv");
-    const bool append = env_flag("KOKKOS_TIMING_APPEND");
-    flush_each = env_flag("KOKKOS_TIMING_FLUSH");
+  start_time = std::chrono::steady_clock::now();
+  out_path = get_env("KOKKOS_TIMING_OUT", "kokkos_kernel_times.csv");
+  const bool append = env_flag("KOKKOS_TIMING_APPEND");
+  flush_each = env_flag("KOKKOS_TIMING_FLUSH");
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    gpu_timing.requested = gpu_events_requested();
-    if (gpu_timing.requested) {
-      gpu_init();
-    }
+  gpu_timing.requested = gpu_events_requested();
+  if (gpu_timing.requested) {
+    gpu_init();
+  }
 #else
-    if (gpu_events_requested() && debug_enabled()) {
-      tool_common::stderr_println(
-          "[kokkos_profiling] KOKKOS_TIMING_GPU_EVENTS requested but backend "
-          "has no GPU support");
-    }
+  if (gpu_events_requested() && debug_enabled()) {
+    tool_common::stderr_println(
+        "[kokkos_profiling] KOKKOS_TIMING_GPU_EVENTS requested but backend "
+        "has no GPU support");
+  }
 #endif
 
-    bool write_header = true;
-    if (append && file_exists(out_path)) {
-      write_header = false;
-    }
+  bool write_header = true;
+  if (append && file_exists(out_path)) {
+    write_header = false;
+  }
 
-    std::ios::openmode mode = std::ios::out;
-    if (append) {
-      mode |= std::ios::app;
-    } else {
-      mode |= std::ios::trunc;
-    }
+  std::ios::openmode mode = std::ios::out;
+  if (append) {
+    mode |= std::ios::app;
+  } else {
+    mode |= std::ios::trunc;
+  }
 
-    out_file.open(out_path, mode);
-    if (!out_file.is_open()) {
-      if (debug_enabled()) {
-        tool_common::stderr_println(
-            std::string("[kokkos_profiling] unable to open ") + out_path);
-      }
-      return;
+  out_file.open(out_path, mode);
+  if (!out_file.is_open()) {
+    if (debug_enabled()) {
+      tool_common::stderr_println(
+          std::string("[kokkos_profiling] unable to open ") + out_path);
     }
+    return;
+  }
 
-    out_ready = true;
-    if (write_header) {
-      out_file << "seq,kid,name,type,thread_id,begin_ns,end_ns,duration_ns,"
-                  "dispatch_end_ns,submit_ns,wait_ns,gpu_begin_ns,gpu_end_ns,"
-                  "gpu_duration_ns,scheduling_latency_ns\n";
-      if (flush_each) {
-        out_file.flush();
-      }
+  out_ready = true;
+  if (write_header) {
+    out_file << "seq,kid,name,type,thread_id,begin_ns,end_ns,duration_ns,"
+                "dispatch_end_ns,submit_ns,wait_ns,gpu_begin_ns,gpu_end_ns,"
+                "gpu_duration_ns,scheduling_latency_ns\n";
+    if (flush_each) {
+      out_file.flush();
     }
-  });
+  }
+}
+
+static void
+open_output()
+{
+  std::call_once(out_once, initialize_output_once);
 }
 
 static void
@@ -485,9 +489,8 @@ non_negative_diff(int64_t lhs, int64_t rhs)
 
 static void
 write_record(
-    uint64_t seq, uint64_t kid, std::string_view name, std::string_view type,
-    std::thread::id thread_id, TimePoint begin, TimePoint dispatch_end,
-    TimePoint end, const GpuTimingSample& gpu_sample)
+    uint64_t seq, uint64_t kid, const KernelRecord& record,
+    TimePoint dispatch_end, TimePoint end, const GpuTimingSample& gpu_sample)
 {
   open_output();
   if (!out_ready) {
@@ -495,7 +498,8 @@ write_record(
   }
 
   const int64_t begin_ns =
-      std::chrono::duration_cast<std::chrono::nanoseconds>(begin - start_time)
+      std::chrono::duration_cast<std::chrono::nanoseconds>(record.begin -
+                                                           start_time)
           .count();
   const int64_t dispatch_end_ns =
       std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -511,14 +515,13 @@ write_record(
       gpu_sample.duration_ns >= 0
           ? non_negative_diff(duration_ns, gpu_sample.duration_ns)
           : -1;
-  const uint64_t thread_hash =
-      static_cast<uint64_t>(std::hash<std::thread::id>{}(thread_id));
+  const auto thread_hash = std::hash<std::thread::id>{}(record.thread_id);
 
   std::scoped_lock lock(out_mutex);
-  out_file << seq << ',' << kid << ',' << csv_escape(name) << ','
-           << csv_escape(type) << ',' << thread_hash << ',' << begin_ns << ','
-           << end_ns << ',' << duration_ns << ',' << dispatch_end_ns << ','
-           << submit_ns << ',' << wait_ns << ',';
+  out_file << seq << ',' << kid << ',' << csv_escape(record.name) << ','
+           << csv_escape(record.type) << ',' << thread_hash << ',' << begin_ns
+           << ',' << end_ns << ',' << duration_ns << ',' << dispatch_end_ns
+           << ',' << submit_ns << ',' << wait_ns << ',';
   write_optional_int(out_file, gpu_sample.begin_ns);
   out_file << ',';
   write_optional_int(out_file, gpu_sample.end_ns);
@@ -608,8 +611,7 @@ end_kernel(const char* type, const uint64_t kID)
 
   const uint64_t seq = next_seq.fetch_add(1, std::memory_order_relaxed) + 1;
   write_record(
-      seq, kID, record.name, record.type, record.thread_id, record.begin,
-      dispatch_end_time, end_time, gpu_sample);
+      seq, kID, record, dispatch_end_time, end_time, gpu_sample);
 }
 
 static void
