@@ -7,8 +7,6 @@ endif()
 
 add_executable(kokkos_app app.cpp)
 target_link_libraries(kokkos_app PRIVATE Kokkos::kokkos)
-set_target_properties(
-  kokkos_app
-  PROPERTIES CXX_STANDARD 20
-             CXX_STANDARD_REQUIRED ON
-             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+target_compile_features(kokkos_app PRIVATE cxx_std_20)
+set_target_properties(kokkos_app PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                            "${CMAKE_BINARY_DIR}")

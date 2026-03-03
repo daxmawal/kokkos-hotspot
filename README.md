@@ -1,27 +1,44 @@
 # Kokkos Hotspot
 
-Toolkit to identify the most expensive Kokkos kernels in you application.
+Toolkit to identify the most expensive Kokkos kernels in your application.
 
 ## Prerequisites
 
 - CMake >= 3.16
 - Python 3
-- Kokkos with profiling enabled (`Kokkos_ENABLE_PROFILING=ON`)
-- To build `libkokkos_profiling_tool.so`, Kokkos must be built with PIC
-  (`-DCMAKE_POSITION_INDEPENDENT_CODE=ON`)
+- Kokkos source submodule initialized (`git submodule update --init --recursive`)
 - Optional: `matplotlib` to generate the hotspot PNG
 
 ## Build
 
+Default build (uses bundled `external/kokkos` submodule):
+
 ```bash
-cmake -S . -B build -DKokkos_DIR=/opt/kokkos/lib/cmake/Kokkos \
-  -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-Option:
+By default, this auto-detects available backends:
+
+- `CUDA` if a CUDA compiler is found
+- otherwise `HIP` if `hipcc` is found
+- `OpenMP` when available
+- `SERIAL` kept enabled as fallback
+
+Options:
 
 - `-DKOKKOS_BUILD_EXAMPLES=OFF` to build only the profiling library
+- `-DKOKKOS_USE_SUBMODULE=OFF -DKokkos_DIR=/opt/kokkos/lib/cmake/Kokkos`
+  to use an external Kokkos installation instead of the submodule
+- `-DKOKKOS_AUTO_BACKENDS=OFF` to disable auto-detection and control backends
+  manually (for example `-DKokkos_ENABLE_OPENMP=ON -DKokkos_ENABLE_SERIAL=OFF`)
+
+If you change backend/toolchain and reuse an existing build directory, clear the
+Kokkos backend cache first (or use a fresh build directory):
+
+```bash
+cmake -S . -B build -U Kokkos_ENABLE_.* -DCMAKE_BUILD_TYPE=Release
+```
 
 ## Quick Start
 

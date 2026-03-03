@@ -361,6 +361,10 @@ def write_hotspots(summary, path, top_n):
     return True
 
 
+def ensure_parent_dir(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
 def main():
     args = parse_args()
     csv_paths = [Path(p) for p in args.csv_files]
@@ -383,6 +387,9 @@ def main():
         if args.hotspots_path
         else default_dir / "kernel_hotspots.csv"
     )
+    ensure_parent_dir(summary_path)
+    ensure_parent_dir(hotspots_path)
+    ensure_parent_dir(plot_path)
 
     metrics, total_rows = load_metrics(csv_paths)
     if total_rows == 0:
