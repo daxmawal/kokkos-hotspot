@@ -35,6 +35,31 @@ cmake -S . -B build \
   -DKokkos_ENABLE_SERIAL=OFF
 ```
 
+## Backend Compatibility
+
+Kokkos Hotspot captures `parallel_for`, `parallel_reduce`, and
+`parallel_scan` callbacks and writes one CSV row per completed event.
+
+When `KOKKOS_USE_SUBMODULE=ON` and `KOKKOS_AUTO_BACKENDS=ON`, backend
+selection follows `CMakeLists.txt`:
+
+| Backend | Auto-enable rule | Notes |
+| --- | --- | --- |
+| CUDA | `CMAKE_CUDA_COMPILER` is found | Forces `Kokkos_ENABLE_HIP=OFF`. |
+| HIP | CUDA compiler not found and `hipcc` is found | Forces `Kokkos_ENABLE_CUDA=OFF`. |
+| OpenMP | `find_package(OpenMP COMPONENTS CXX)` succeeds | Host backend. |
+| SERIAL | Always enabled | Fallback host backend. |
+
+Additional behavior:
+
+- `Kokkos_ENABLE_PROFILING` defaults to `ON` when using the bundled submodule.
+- With `KOKKOS_USE_SUBMODULE=OFF`, `KOKKOS_AUTO_BACKENDS=ON` is ignored and
+  backend choice comes from your external Kokkos installation.
+- GPU event metrics (`gpu_*`, `scheduling_latency_ns`) require:
+  - a CUDA or HIP build,
+  - a working GPU runtime/device at execution time,
+  - `KOKKOS_TIMING_GPU_EVENTS` not set to `0`.
+
 ## External Kokkos Installation
 
 Use an already installed Kokkos package:
