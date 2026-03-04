@@ -34,6 +34,27 @@ Analyze an existing timing CSV without rerunning the app:
 KOKKOS_HOTSPOTS_NO_RUN=1 ./scripts/analyze_hotspots.sh /path/to/timings.csv
 ```
 
+## Use with Your Own Executable
+
+Use `analyze_hotspots.sh` with another executable (no special arguments):
+
+```bash
+KOKKOS_APP=/path/to/my_app \
+KOKKOS_TIMING_TOOL_LIB=$PWD/build/libkokkos_profiling_tool.so \
+KOKKOS_TIMING_OUT=$PWD/build/my_app_times.csv \
+./scripts/analyze_hotspots.sh
+```
+
+If your executable needs arguments, run capture manually then analyze:
+
+```bash
+env KOKKOS_TOOLS_LIBS="$PWD/build/libkokkos_profiling_tool.so" \
+    KOKKOS_TIMING_OUT="$PWD/build/my_app_times.csv" \
+    /path/to/my_app --my --args
+
+python3 scripts/analyze_timings.py "$PWD/build/my_app_times.csv" --top 30
+```
+
 ## Documentation
 
 - Build and configuration: [`docs/build.md`](docs/build.md)
