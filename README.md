@@ -54,12 +54,3 @@ env KOKKOS_TOOLS_LIBS="$PWD/build/libkokkos_profiling_tool.so" \
 
 python3 scripts/analyze_timings.py "$PWD/build/my_app_times.csv" --top 30
 ```
-
-## Documentation
-
-- Build and configuration: [`docs/build.md`](docs/build.md)
-- Capture and analysis workflow: [`docs/usage.md`](docs/usage.md)
-- CSV format reference: [`docs/csv-format.md`](docs/csv-format.md)
-- Troubleshooting: [`docs/troubleshooting.md`](docs/troubleshooting.md)
-- Docker usage: [`docs/docker.md`](docs/docker.md)
-- Implementation overview: [`docs/roadmap.md`](docs/roadmap.md)
